@@ -5,10 +5,10 @@
 // ══════════════════════════════════════════════
 let state = {
     userName: '',
-    questions: [],        // shuffled subset
+    questions: [],
     current: 0,
-    answers: {},          // { questionId: selectedOption }
-    timeLeft: 25 * 60,   // 25 minutes in seconds
+    answers: {},
+    timeLeft: 25 * 60,
     timerRef: null,
     startTime: null,
     submitted: false
@@ -18,31 +18,27 @@ let state = {
 // DOM HELPERS
 // ══════════════════════════════════════════════
 const $ = id => document.getElementById(id);
-const show = id => { document.querySelectorAll('.screen').forEach(s => s.classList.remove('active')); $(id).classList.add('active'); };
+const showScreen = id => {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    $(id).classList.add('active');
+};
 
 // ══════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', () => {
-    // Landing screen
     $('startBtn').addEventListener('click', startTest);
     $('nameInput').addEventListener('keydown', e => { if (e.key === 'Enter') startTest(); });
-
-    // Nav buttons
     $('prevBtn').addEventListener('click', () => navigate(-1));
     $('nextBtn').addEventListener('click', handleNext);
-
-    // Submit / share
     $('copyBtn').addEventListener('click', copyResults);
     $('retakeBtn').addEventListener('click', retake);
 
-    // Anti-cheat: warn on tab switch
+    // Anti-cheat
     document.addEventListener('visibilitychange', () => {
         if (state.submitted || !state.startTime) return;
-        if (document.hidden) showTabWarning();
+        if (document.hidden) showToast('⚠️ Tab switch detected!');
     });
-
-    // Disable right-click on test
     document.addEventListener('contextmenu', e => {
         if ($('test').classList.contains('active')) e.preventDefault();
     });
@@ -55,26 +51,22 @@ function startTest() {
     const name = $('nameInput').value.trim() || 'Anonymous';
     state.userName = name;
 
-    // Shuffle and pick all questions (all 40), shuffled per category
+    // Shuffle all questions (shuffle within each category, then interleave)
     const byCategory = {};
     QUESTIONS.forEach(q => {
         if (!byCategory[q.category]) byCategory[q.category] = [];
         byCategory[q.category].push(q);
     });
-
-    let shuffled = [];
-    Object.values(byCategory).forEach(arr => {
-        shuffled = shuffled.concat(shuffle([...arr]));
-    });
-    state.questions = shuffle(shuffled);
-
+    let pool = [];
+    Object.values(byCategory).forEach(arr => pool = pool.concat(shuffle([...arr])));
+    state.questions = shuffle(pool);
     state.current = 0;
     state.answers = {};
     state.timeLeft = 25 * 60;
     state.submitted = false;
     state.startTime = Date.now();
 
-    show('test');
+    showScreen('test');
     renderQuestion();
     renderQuestionMap();
     startTimer();
@@ -89,18 +81,15 @@ function startTimer() {
     state.timerRef = setInterval(() => {
         state.timeLeft--;
         updateTimerDisplay();
-        if (state.timeLeft <= 0) {
-            clearInterval(state.timerRef);
-            submitTest(true);
-        }
+        if (state.timeLeft <= 0) { clearInterval(state.timerRef); submitTest(true); }
     }, 1000);
 }
 
 function updateTimerDisplay() {
-    const mins = Math.floor(state.timeLeft / 60).toString().padStart(2, '0');
-    const secs = (state.timeLeft % 60).toString().padStart(2, '0');
+    const m = Math.floor(state.timeLeft / 60).toString().padStart(2, '0');
+    const s = (state.timeLeft % 60).toString().padStart(2, '0');
     const el = $('timer');
-    el.textContent = `${mins}:${secs}`;
+    el.textContent = `${m}:${s}`;
     el.className = '';
     if (state.timeLeft <= 300) el.classList.add('warning');
     if (state.timeLeft <= 60) el.classList.add('danger');
@@ -113,41 +102,39 @@ function renderQuestion() {
     const q = state.questions[state.current];
     const idx = state.current;
     const total = state.questions.length;
+    const pct = (idx / total) * 100;
 
-    // Progress
-    const pct = ((idx) / total * 100).toFixed(1);
+    // Top bar
     $('progressFill').style.width = pct + '%';
-    $('progressText').textContent = `Question ${idx + 1} of ${total}`;
+    $('qCounter').textContent = `${idx + 1}/${total}`;
 
     // Category badge
     const catMeta = CATEGORIES[q.category];
-    const badge = $('categoryBadge');
-    badge.textContent = catMeta.label;
-    badge.style.color = catMeta.color;
-    badge.style.borderColor = catMeta.color;
+    $('categoryBadge').textContent = catMeta.label;
+    $('categoryBadge').style.color = catMeta.color;
 
-    // Question number
-    $('qNumber').textContent = `#${idx + 1}`;
+    // Question meta
+    $('qNumber').textContent = `Question ${idx + 1}`;
 
-    // Difficulty dots
+    // Difficulty pips
     const dots = $('difficultyDots');
     dots.innerHTML = '';
     for (let i = 1; i <= 5; i++) {
-        const dot = document.createElement('span');
-        dot.className = 'dot' + (i <= q.difficulty ? ' filled' : '');
-        dots.appendChild(dot);
+        const pip = document.createElement('span');
+        pip.className = 'diff-pip' + (i <= q.difficulty ? ' on' : '');
+        dots.appendChild(pip);
     }
 
     // Question text
     $('questionText').textContent = q.question;
 
-    // Options (always shuffled, except store correct answer by value)
+    // Options – shuffled
     const letters = ['A', 'B', 'C', 'D'];
-    const shuffledOptions = shuffle([...q.options]);
+    const shuffledOpts = shuffle([...q.options]);
     const grid = $('optionsGrid');
     grid.innerHTML = '';
 
-    shuffledOptions.forEach((opt, i) => {
+    shuffledOpts.forEach((opt, i) => {
         const btn = document.createElement('button');
         btn.className = 'option-btn' + (state.answers[q.id] === opt ? ' selected' : '');
         btn.innerHTML = `<span class="option-letter">${letters[i]}</span><span>${escHtml(opt)}</span>`;
@@ -155,10 +142,12 @@ function renderQuestion() {
         grid.appendChild(btn);
     });
 
-    // Nav state
+    // Nav
     $('prevBtn').disabled = idx === 0;
-    $('nextBtn').textContent = idx === total - 1 ? 'Submit' : 'Next →';
-    $('nextBtn').classList.toggle('primary', idx === total - 1);
+    const isLast = idx === total - 1;
+    $('nextBtn').textContent = isLast ? 'Submit ✓' : 'Next →';
+    if (isLast) $('nextBtn').classList.add('primary');
+    else $('nextBtn').classList.add('primary'); // always primary
 
     updateQuestionMap();
 }
@@ -168,12 +157,14 @@ function renderQuestion() {
 // ══════════════════════════════════════════════
 function selectOption(qId, opt) {
     state.answers[qId] = opt;
-    // Refresh visual
     document.querySelectorAll('.option-btn').forEach(btn => {
-        const text = btn.querySelector('span:last-child').textContent;
-        btn.classList.toggle('selected', text === opt);
-        btn.querySelector('.option-letter').style.background = text === opt ? 'var(--accent)' : '';
-        btn.querySelector('.option-letter').style.color = text === opt ? '#fff' : '';
+        const txt = btn.querySelector('span:last-child').textContent;
+        const sel = txt === opt;
+        btn.classList.toggle('selected', sel);
+        const ltr = btn.querySelector('.option-letter');
+        ltr.style.background = sel ? 'var(--accent)' : '';
+        ltr.style.borderColor = sel ? 'var(--accent-dark)' : '';
+        ltr.style.color = sel ? 'var(--text-dark)' : '';
     });
     updateQuestionMap();
 }
@@ -188,7 +179,6 @@ function navigate(dir) {
 
 function handleNext() {
     if (state.current === state.questions.length - 1) {
-        // Show confirm
         const unanswered = state.questions.filter(q => !state.answers[q.id]).length;
         if (unanswered > 0) {
             const ok = confirm(`You have ${unanswered} unanswered question(s). Submit anyway?`);
@@ -210,15 +200,13 @@ function renderQuestionMap() {
         const dot = document.createElement('div');
         dot.className = 'q-dot' + (state.answers[q.id] ? ' answered' : '') + (i === state.current ? ' current' : '');
         dot.textContent = i + 1;
-        dot.title = `Question ${i + 1}`;
         dot.addEventListener('click', () => { state.current = i; renderQuestion(); });
         map.appendChild(dot);
     });
 }
 
 function updateQuestionMap() {
-    const dots = document.querySelectorAll('.q-dot');
-    dots.forEach((dot, i) => {
+    document.querySelectorAll('.q-dot').forEach((dot, i) => {
         const q = state.questions[i];
         dot.className = 'q-dot' + (state.answers[q.id] ? ' answered' : '') + (i === state.current ? ' current' : '');
     });
@@ -230,10 +218,8 @@ function updateQuestionMap() {
 function submitTest(timeout = false) {
     clearInterval(state.timerRef);
     state.submitted = true;
-
     const timeTaken = Math.round((Date.now() - state.startTime) / 1000);
 
-    // Calculate raw weighted score
     let rawScore = 0;
     let catCorrect = { pattern: 0, numerical: 0, logical: 0, spatial: 0 };
     let catTotal = { pattern: 0, numerical: 0, logical: 0, spatial: 0 };
@@ -246,59 +232,52 @@ function submitTest(timeout = false) {
         }
     });
 
-    // IQ Formula: IQ = 100 + ((rawScore - popMean) / popSD) * 15
     let iq = SCORING.iqMean + ((rawScore - SCORING.populationMean) / SCORING.populationSD) * SCORING.iqSD;
     iq = Math.round(Math.max(SCORING.minIQ, Math.min(SCORING.maxIQ, iq)));
 
     const percentile = iqToPercentile(iq);
-    const answered = Object.keys(state.answers).length;
     const correct = state.questions.filter(q => state.answers[q.id] === q.answer).length;
+    const answered = Object.keys(state.answers).length;
     const grade = getGrade(iq);
 
-    show('results');
-    renderResults({ iq, percentile, rawScore, answered, correct, timeTaken, catCorrect, catTotal, grade, timeout });
+    showScreen('results');
+    renderResults({ iq, percentile, correct, answered, timeTaken, catCorrect, catTotal, grade, timeout });
 }
 
 // ══════════════════════════════════════════════
 // RENDER RESULTS
 // ══════════════════════════════════════════════
 function renderResults(data) {
-    const { iq, percentile, answered, correct, timeTaken, catCorrect, catTotal, grade, timeout } = data;
+    const { iq, percentile, correct, answered, timeTaken, catCorrect, catTotal, grade, timeout } = data;
     const total = state.questions.length;
 
     // Header
     $('userNameDisplay').textContent = `${state.userName}'s Results`;
-    if (timeout) {
-        const note = document.createElement('p');
-        note.style.cssText = 'color:var(--warning);font-size:0.8rem;margin-top:4px';
-        note.textContent = '⏰ Time expired — auto-submitted';
-        $('userNameDisplay').after(note);
-    }
 
-    // IQ Ring animation
+    // IQ Ring
     $('iqScoreDisplay').textContent = iq;
-    const circumference = 427; // 2π × 68
     const pctOfRange = (iq - 55) / (160 - 55);
-    const dashOffset = circumference * (1 - pctOfRange);
     setTimeout(() => {
-        $('iqRingFill').style.strokeDashoffset = dashOffset;
+        $('iqRingFill').style.strokeDashoffset = 427 * (1 - pctOfRange);
     }, 200);
 
-    // Grade badge
-    const gradeBadge = $('gradeBadge');
-    gradeBadge.textContent = grade.label;
-    gradeBadge.style.background = grade.bg;
-    gradeBadge.style.color = grade.fg;
-
+    // Grade
+    const gb = $('gradeBadge');
+    gb.textContent = grade.label;
+    gb.style.background = grade.bg;
+    gb.style.color = grade.fg;
     $('gradeLabel').textContent = grade.label;
     $('gradeLabel').style.color = grade.color;
     $('gradeDesc').textContent = grade.desc;
 
     // Stats
-    $('statPercentile').textContent = `Top ${100 - percentile}%`;
+    $('statPercentile').textContent = `${percentile}th`;
     $('statScore').textContent = `${correct}/${total}`;
-    $('statTime').textContent = formatTime(data.timeTaken);
+    $('statTime').textContent = formatTime(timeTaken);
     $('statAnswered').textContent = `${answered}/${total}`;
+
+    // Highlight IQ range cell
+    highlightRangeCell(iq);
 
     // Bell curve
     drawBellCurve(iq);
@@ -311,149 +290,176 @@ function renderResults(data) {
         catBars.innerHTML += `
       <div class="cat-bar-row">
         <div class="cat-bar-label">
-          <span class="cat-bar-icon">${meta.icon}</span>
+          <div class="cat-icon-wrap" style="background:${meta.color}22">${meta.icon}</div>
           ${meta.label}
         </div>
         <div class="cat-bar-bg">
           <div class="cat-bar-fill" style="width:0%;background:${meta.color}" data-pct="${pct}"></div>
         </div>
-        <div class="cat-bar-score">${catCorrect[key]}/${catTotal[key]}</div>
+        <div class="cat-pct">${pct}%</div>
       </div>
     `;
     });
-
-    // Animate bars
     setTimeout(() => {
-        document.querySelectorAll('.cat-bar-fill').forEach(bar => {
-            bar.style.width = bar.dataset.pct + '%';
-        });
+        document.querySelectorAll('.cat-bar-fill').forEach(b => { b.style.width = b.dataset.pct + '%'; });
     }, 300);
 
-    // Store results
+    // Store
     localStorage.setItem('iqTestLastResult', JSON.stringify({
-        name: state.userName, iq, percentile, correct, total,
-        time: data.timeTaken, date: new Date().toISOString()
+        name: state.userName, iq, percentile, correct, total, time: timeTaken, date: new Date().toISOString()
     }));
+
+    if (timeout) showToast('⏰ Time expired — auto-submitted');
+}
+
+function highlightRangeCell(iq) {
+    document.querySelectorAll('.range-cell').forEach(cell => {
+        cell.classList.remove('active-range');
+        const min = parseInt(cell.dataset.min);
+        if (
+            (min === 145 && iq >= 145) ||
+            (min === 130 && iq >= 130 && iq < 145) ||
+            (min === 120 && iq >= 120 && iq < 130) ||
+            (min === 110 && iq >= 110 && iq < 120) ||
+            (min === 90 && iq >= 90 && iq < 110) ||
+            (min === 0 && iq < 90)
+        ) {
+            cell.classList.add('active-range');
+        }
+    });
 }
 
 // ══════════════════════════════════════════════
-// BELL CURVE (Canvas)
+// BELL CURVE (multi-color SD zones like reference)
 // ══════════════════════════════════════════════
 function drawBellCurve(userIQ) {
     const canvas = $('bellCurve');
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-
-    // Set actual canvas size
     const rect = canvas.getBoundingClientRect();
     canvas.width = rect.width * dpr;
     canvas.height = rect.height * dpr;
     ctx.scale(dpr, dpr);
-    const W = rect.width;
-    const H = rect.height;
+    const W = rect.width, H = rect.height;
 
     const mu = 100, sigma = 15;
     const iqMin = 55, iqMax = 160;
 
-    // Normal PDF
     const pdf = x => Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
-
-    // Map IQ → x pixel
     const iqToX = iq => ((iq - iqMin) / (iqMax - iqMin)) * W;
 
-    // Find peak y for scaling
+    // Scale to fit canvas
     const peakPdf = pdf(mu);
-    const scaleY = (H - 40) / peakPdf;
+    const scaleY = (H - 36) / peakPdf;
 
-    // Curve points
+    // Build points array
+    const step = 0.4;
     const pts = [];
-    for (let iq = iqMin; iq <= iqMax; iq += 0.5) {
-        pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY });
+    for (let iq = iqMin; iq <= iqMax; iq += step) {
+        pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
     }
 
     ctx.clearRect(0, 0, W, H);
 
-    // Shade area left of user's IQ (percentile region)
-    const userX = iqToX(userIQ);
-    const gradient = ctx.createLinearGradient(0, 0, userX, 0);
-    gradient.addColorStop(0, 'rgba(99,102,241,0.05)');
-    gradient.addColorStop(1, 'rgba(99,102,241,0.25)');
+    // ── SD ZONE FILLS (matches reference: purple/orange/green/blue/green/orange/purple) ──
+    const zones = [
+        { from: 55, to: 70, color: 'rgba(150,80,220,0.3)' },  // far left purple
+        { from: 70, to: 85, color: 'rgba(240,130,40,0.3)' },  // left orange
+        { from: 85, to: 100, color: 'rgba(60,180,80,0.3)' },  // left green
+        { from: 100, to: 115, color: 'rgba(50,120,240,0.45)' },  // center blue
+        { from: 115, to: 130, color: 'rgba(60,180,80,0.3)' },  // right green
+        { from: 130, to: 145, color: 'rgba(240,130,40,0.3)' },  // right orange
+        { from: 145, to: 160, color: 'rgba(150,80,220,0.3)' },  // far right purple
+    ];
 
-    ctx.beginPath();
-    ctx.moveTo(iqToX(iqMin), H - 20);
-    pts.forEach(p => { if (p.x <= userX) ctx.lineTo(p.x, p.y); });
-    ctx.lineTo(userX, H - 20);
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
+    zones.forEach(zone => {
+        const zonePts = pts.filter(p => p.iq >= zone.from && p.iq <= zone.to);
+        if (!zonePts.length) return;
+        ctx.beginPath();
+        ctx.moveTo(zonePts[0].x, H - 20);
+        zonePts.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(zonePts[zonePts.length - 1].x, H - 20);
+        ctx.closePath();
+        ctx.fillStyle = zone.color;
+        ctx.fill();
+    });
 
-    // Main curve
-    const curveGrad = ctx.createLinearGradient(0, 0, W, 0);
-    curveGrad.addColorStop(0, '#6366f1');
-    curveGrad.addColorStop(0.5, '#818cf8');
-    curveGrad.addColorStop(1, '#10b981');
-
+    // ── CURVE LINE ──
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     pts.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = curveGrad;
-    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Baseline
+    // ── BASELINE ──
     ctx.beginPath();
     ctx.moveTo(0, H - 20);
     ctx.lineTo(W, H - 20);
-    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.strokeStyle = '#c0c4d4';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // SD markers (70, 85, 100, 115, 130)
-    const markers = [70, 85, 100, 115, 130];
+    // ── X-AXIS LABELS ──
+    const markers = [55, 70, 85, 100, 115, 130, 145, 160];
+    ctx.fillStyle = '#8888aa';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
     markers.forEach(m => {
         const mx = iqToX(m);
         ctx.beginPath();
         ctx.moveTo(mx, H - 20);
-        ctx.lineTo(mx, H - 14);
-        ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+        ctx.lineTo(mx, H - 15);
+        ctx.strokeStyle = '#c0c4d4';
         ctx.lineWidth = 1;
         ctx.stroke();
-
-        ctx.fillStyle = 'rgba(255,255,255,0.3)';
-        ctx.font = `${10 * dpr / dpr}px Inter, sans-serif`;
-        ctx.textAlign = 'center';
         ctx.fillText(m, mx, H - 4);
     });
 
-    // User IQ line
-    const lineGrad = ctx.createLinearGradient(userX, 0, userX, H);
-    lineGrad.addColorStop(0, 'rgba(99,102,241,1)');
-    lineGrad.addColorStop(1, 'rgba(99,102,241,0)');
+    // ── SD % LABELS (like reference: 34%, 14%, 2%, 0.1%) ──
+    ctx.fillStyle = '#4a4a6a';
+    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    const pctLabels = [
+        { iq: 77.5, label: '14%' },
+        { iq: 92.5, label: '34%' },
+        { iq: 107.5, label: '34%' },
+        { iq: 122.5, label: '14%' },
+    ];
+    pctLabels.forEach(({ iq, label }) => {
+        const px = iqToX(iq);
+        const py = H - 20 - pdf(iq) * scaleY - 10;
+        ctx.fillText(label, px, py);
+    });
+
+    // ── USER IQ VERTICAL LINE ──
+    const ux = iqToX(userIQ);
+    const uy = H - 20 - pdf(userIQ) * scaleY;
     ctx.beginPath();
-    ctx.moveTo(userX, H - 20);
-    const userPdfY = H - 20 - pdf(userIQ) * scaleY;
-    ctx.lineTo(userX, userPdfY);
-    ctx.strokeStyle = lineGrad;
+    ctx.moveTo(ux, H - 20);
+    ctx.lineTo(ux, uy);
+    ctx.strokeStyle = '#1a1a2e';
     ctx.lineWidth = 2;
     ctx.setLineDash([4, 3]);
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // User IQ dot
+    // ── USER DOT ──
     ctx.beginPath();
-    ctx.arc(userX, userPdfY, 5, 0, Math.PI * 2);
-    ctx.fillStyle = '#818cf8';
+    ctx.arc(ux, uy, 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#f2d445';
     ctx.fill();
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    // User IQ label
-    const labelX = Math.max(30, Math.min(W - 30, userX));
-    ctx.fillStyle = '#f1f5f9';
-    ctx.font = `bold 13px 'Space Grotesk', sans-serif`;
+    // ── USER IQ LABEL ──
+    const labelX = Math.max(22, Math.min(W - 22, ux));
+    const labelY = Math.max(14, uy - 12);
+    ctx.fillStyle = '#1a1a2e';
+    ctx.font = 'bold 12px Space Grotesk, sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(`IQ ${userIQ}`, labelX, Math.max(14, userPdfY - 10));
+    ctx.fillText(`IQ ${userIQ}`, labelX, labelY);
 }
 
 // ══════════════════════════════════════════════
@@ -468,8 +474,7 @@ function shuffle(arr) {
 }
 
 function formatTime(secs) {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
+    const m = Math.floor(secs / 60), s = secs % 60;
     return m > 0 ? `${m}m ${s}s` : `${s}s`;
 }
 
@@ -477,7 +482,6 @@ function escHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-// Normal CDF via rational approximation (Abramowitz & Stegun)
 function normalCDF(z) {
     const t = 1 / (1 + 0.2316419 * Math.abs(z));
     const d = 0.3989423 * Math.exp(-z * z / 2);
@@ -487,51 +491,148 @@ function normalCDF(z) {
 }
 
 function iqToPercentile(iq) {
-    const z = (iq - 100) / 15;
-    return Math.round(normalCDF(z) * 100);
+    return Math.round(normalCDF((iq - 100) / 15) * 100);
 }
 
 function getGrade(iq) {
-    if (iq >= 145) return { label: "Genius", color: "#818cf8", bg: "rgba(129,140,248,0.2)", fg: "#818cf8", desc: "Extraordinary cognitive ability. Top 0.1% of population." };
-    if (iq >= 130) return { label: "Very Superior", color: "#6366f1", bg: "rgba(99,102,241,0.2)", fg: "#818cf8", desc: "Highly gifted. Top 2% of population." };
-    if (iq >= 120) return { label: "Superior", color: "#0ea5e9", bg: "rgba(14,165,233,0.2)", fg: "#38bdf8", desc: "Well above average cognitive ability." };
-    if (iq >= 110) return { label: "High Average", color: "#10b981", bg: "rgba(16,185,129,0.2)", fg: "#34d399", desc: "Above average intelligence." };
-    if (iq >= 90) return { label: "Average", color: "#f59e0b", bg: "rgba(245,158,11,0.2)", fg: "#fbbf24", desc: "Within the typical range of intelligence." };
-    if (iq >= 80) return { label: "Low Average", color: "#f97316", bg: "rgba(249,115,22,0.2)", fg: "#fb923c", desc: "Slightly below average." };
-    return { label: "Below Average", color: "#ef4444", bg: "rgba(239,68,68,0.2)", fg: "#f87171", desc: "Below average cognitive performance on this test." };
+    if (iq >= 145) return { label: "Genius", color: "#7c3aed", bg: "rgba(124,58,237,0.1)", fg: "#7c3aed", desc: "Extraordinary cognitive ability. Top 0.1% of population." };
+    if (iq >= 130) return { label: "Very Superior", color: "#2563eb", bg: "rgba(37,99,235,0.1)", fg: "#2563eb", desc: "Highly gifted. Top 2% of population." };
+    if (iq >= 120) return { label: "Superior", color: "#0891b2", bg: "rgba(8,145,178,0.1)", fg: "#0891b2", desc: "Well above average cognitive ability." };
+    if (iq >= 110) return { label: "High Average", color: "#16a34a", bg: "rgba(22,163,74,0.1)", fg: "#16a34a", desc: "Above average intelligence." };
+    if (iq >= 90) return { label: "Average", color: "#b45309", bg: "rgba(242,212,69,0.25)", fg: "#92400e", desc: "Within the typical range of intelligence." };
+    if (iq >= 80) return { label: "Low Average", color: "#c2410c", bg: "rgba(248,113,75,0.15)", fg: "#c2410c", desc: "Slightly below average." };
+    return { label: "Below Average", color: "#dc2626", bg: "rgba(239,68,68,0.1)", fg: "#dc2626", desc: "Below average cognitive performance on this test." };
 }
 
-function showTabWarning() {
-    showToast('⚠️ Tab switch detected!', '#f59e0b');
-}
-
-function showToast(msg, bg = '#10b981') {
+function showToast(msg) {
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.textContent = msg;
-    toast.style.background = bg;
     document.body.appendChild(toast);
     setTimeout(() => toast.classList.add('show'), 10);
-    setTimeout(() => {
-        toast.classList.remove('show');
-        setTimeout(() => toast.remove(), 500);
-    }, 2500);
+    setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 500); }, 2500);
 }
 
 function copyResults() {
     const last = JSON.parse(localStorage.getItem('iqTestLastResult') || '{}');
     const url = window.location.href.split('?')[0];
-    const text = `🧠 My IQ Test Results\n` +
-        `Name: ${last.name}\n` +
-        `IQ Score: ${last.iq}\n` +
-        `Percentile: ${last.percentile}th\n` +
-        `Score: ${last.correct}/${last.total}\n` +
-        `Take the test: ${url}`;
-    navigator.clipboard.writeText(text).then(() => showToast('✓ Results copied to clipboard!'));
+    const text = `🧠 My IQ Test Results\nName: ${last.name}\nIQ Score: ${last.iq}\nPercentile: ${last.percentile}th\nScore: ${last.correct}/${last.total}\n\nTake the test: ${url}`;
+    navigator.clipboard.writeText(text).then(() => showToast('✓ Copied to clipboard!'));
 }
 
 function retake() {
     clearInterval(state.timerRef);
     state.submitted = false;
-    show('landing');
+    showScreen('landing');
+}
+
+// ══════════════════════════════════════════════
+// STATIC LANDING BELL CURVE (no user dot)
+// ══════════════════════════════════════════════
+function drawLandingBellCurve() {
+    const canvas = document.getElementById('landingBellCurve');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    const mu = 100, sigma = 15;
+    const iqMin = 55, iqMax = 160;
+    const pdf = x => Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
+    const iqToX = iq => ((iq - iqMin) / (iqMax - iqMin)) * W;
+    const scaleY = (H - 36) / pdf(mu);
+
+    const step = 0.4;
+    const pts = [];
+    for (let iq = iqMin; iq <= iqMax; iq += step) {
+        pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
+    }
+
+    ctx.clearRect(0, 0, W, H);
+
+    // SD zone fills — same colors as results bell curve
+    const zones = [
+        { from: 55, to: 70, color: 'rgba(150,80,220,0.28)' },
+        { from: 70, to: 85, color: 'rgba(240,130,40,0.28)' },
+        { from: 85, to: 100, color: 'rgba(60,180,80,0.28)' },
+        { from: 100, to: 115, color: 'rgba(50,120,240,0.42)' },
+        { from: 115, to: 130, color: 'rgba(60,180,80,0.28)' },
+        { from: 130, to: 145, color: 'rgba(240,130,40,0.28)' },
+        { from: 145, to: 160, color: 'rgba(150,80,220,0.28)' },
+    ];
+
+    zones.forEach(zone => {
+        const zp = pts.filter(p => p.iq >= zone.from && p.iq <= zone.to);
+        if (!zp.length) return;
+        ctx.beginPath();
+        ctx.moveTo(zp[0].x, H - 20);
+        zp.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(zp[zp.length - 1].x, H - 20);
+        ctx.closePath();
+        ctx.fillStyle = zone.color;
+        ctx.fill();
+    });
+
+    // Curve line
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    pts.forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Baseline
+    ctx.beginPath();
+    ctx.moveTo(0, H - 20);
+    ctx.lineTo(W, H - 20);
+    ctx.strokeStyle = '#c0c4d4';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // X-axis labels
+    const markers = [55, 70, 85, 100, 115, 130, 145, 160];
+    ctx.fillStyle = '#8888aa';
+    ctx.font = '10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    markers.forEach(m => {
+        const mx = iqToX(m);
+        ctx.beginPath();
+        ctx.moveTo(mx, H - 20);
+        ctx.lineTo(mx, H - 14);
+        ctx.strokeStyle = '#c0c4d4';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        ctx.fillStyle = '#8888aa';
+        ctx.fillText(m, mx, H - 4);
+    });
+
+    // Percentage labels (0.1%, 2%, 14%, 34%, 34%, 14%, 2%, 0.1%)
+    const pctLabels = [
+        { iq: 62.5, label: '0.1%' },
+        { iq: 77.5, label: '2%' },
+        { iq: 92.5, label: '14%' },
+        { iq: 107.5, label: '34%' },
+        { iq: 122.5, label: '14%' },
+        { iq: 137.5, label: '2%' },
+        { iq: 152.5, label: '0.1%' },
+    ];
+    ctx.fillStyle = '#4a4a6a';
+    ctx.font = 'bold 10px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    pctLabels.forEach(({ iq, label }) => {
+        const px = iqToX(iq);
+        const py = H - 20 - pdf(iq) * scaleY - 10;
+        if (py > 14) ctx.fillText(label, px, py);
+    });
+}
+
+// Draw landing bell curve once fonts/layout are ready
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(drawLandingBellCurve, 100));
+} else {
+    setTimeout(drawLandingBellCurve, 100);
 }
