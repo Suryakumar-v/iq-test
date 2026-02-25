@@ -1127,3 +1127,153 @@ nav {
     gap: 12px;
   }
 }
+
+/* ══════════════════════════════════════════
+   VISUAL MATRIX QUESTION
+══════════════════════════════════════════ */
+#matrixContainer {
+  margin-bottom: 20px;
+}
+
+.matrix-grid {
+  border-collapse: collapse;
+  margin: 0 auto 4px;
+  font-family: 'Space Grotesk', monospace;
+}
+
+.matrix-cell {
+  width: 64px;
+  height: 64px;
+  text-align: center;
+  vertical-align: middle;
+  font-size: 1.5rem;
+  border: 2px solid #d8dce8;
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 4px;
+  transition: background 0.2s;
+}
+
+.matrix-cell.missing {
+  background: var(--accent);
+  border-color: var(--accent-dark);
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text-dark);
+}
+
+/* ══════════════════════════════════════════
+   WORKING MEMORY QUESTION
+══════════════════════════════════════════ */
+#memoryContainer {
+  margin-bottom: 20px;
+}
+
+.mem-sequence-wrap {
+  background: var(--text-dark);
+  border-radius: var(--radius-lg);
+  padding: 28px 32px;
+  text-align: center;
+}
+
+.mem-label {
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 16px;
+}
+
+.mem-sequence {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 2.4rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.12em;
+  margin-bottom: 20px;
+}
+
+.mem-countdown-bar {
+  height: 6px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  margin-bottom: 10px;
+}
+
+.mem-countdown-fill {
+  height: 100%;
+  background: var(--progress);
+  border-radius: var(--radius-pill);
+  transition: width 1s linear;
+}
+
+.mem-timer-text {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.mem-hidden-notice {
+  background: var(--bg-section);
+  border-radius: var(--radius-md);
+  padding: 14px 20px;
+  text-align: center;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-mid);
+  margin-bottom: 4px;
+  border: 1.5px dashed #c0c4d4;
+}
+
+/* ══════════════════════════════════════════
+   PROCESSING SPEED QUESTION
+══════════════════════════════════════════ */
+#speedContainer {
+  margin-bottom: 20px;
+}
+
+.speed-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-mid);
+  margin-bottom: 12px;
+}
+
+.speed-find {
+  color: #e11d48;
+  font-size: 1.05rem;
+}
+
+.speed-grid {
+  background: var(--bg);
+  border-radius: var(--radius-md);
+  padding: 16px 20px;
+  border: 1.5px solid #e0e4ee;
+  margin-bottom: 4px;
+  display: inline-block;
+}
+
+.speed-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 8px;
+  justify-content: center;
+}
+
+.speed-row:last-child {
+  margin-bottom: 0;
+}
+
+.speed-sym {
+  font-size: 1.35rem;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--white);
+  border: 1px solid #e0e4ee;
+  transition: background 0.15s;
+}

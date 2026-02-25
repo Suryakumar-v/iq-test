@@ -8,8 +8,9 @@ let state = {
     questions: [],
     current: 0,
     answers: {},
-    timeLeft: 25 * 60,
+    timeLeft: 30 * 60,   // 30 minutes for expanded test
     timerRef: null,
+    memTimerRef: null,
     startTime: null,
     submitted: false
 };
@@ -34,7 +35,6 @@ document.addEventListener('DOMContentLoaded', () => {
     $('copyBtn').addEventListener('click', copyResults);
     $('retakeBtn').addEventListener('click', retake);
 
-    // Anti-cheat
     document.addEventListener('visibilitychange', () => {
         if (state.submitted || !state.startTime) return;
         if (document.hidden) showToast('⚠️ Tab switch detected!');
@@ -42,6 +42,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.addEventListener('contextmenu', e => {
         if ($('test').classList.contains('active')) e.preventDefault();
     });
+
+    setTimeout(drawLandingBellCurve, 150);
 });
 
 // ══════════════════════════════════════════════
@@ -51,7 +53,7 @@ function startTest() {
     const name = $('nameInput').value.trim() || 'Anonymous';
     state.userName = name;
 
-    // Shuffle all questions (shuffle within each category, then interleave)
+    // Shuffle within each category, then interleave
     const byCategory = {};
     QUESTIONS.forEach(q => {
         if (!byCategory[q.category]) byCategory[q.category] = [];
@@ -62,7 +64,7 @@ function startTest() {
     state.questions = shuffle(pool);
     state.current = 0;
     state.answers = {};
-    state.timeLeft = 25 * 60;
+    state.timeLeft = 30 * 60;
     state.submitted = false;
     state.startTime = Date.now();
 
@@ -96,24 +98,22 @@ function updateTimerDisplay() {
 }
 
 // ══════════════════════════════════════════════
-// RENDER QUESTION
+// RENDER QUESTION — dispatches by type
 // ══════════════════════════════════════════════
 function renderQuestion() {
+    clearInterval(state.memTimerRef);
+
     const q = state.questions[state.current];
     const idx = state.current;
     const total = state.questions.length;
-    const pct = (idx / total) * 100;
 
-    // Top bar
-    $('progressFill').style.width = pct + '%';
+    // Common UI
+    $('progressFill').style.width = (idx / total * 100) + '%';
     $('qCounter').textContent = `${idx + 1}/${total}`;
 
-    // Category badge
-    const catMeta = CATEGORIES[q.category];
+    const catMeta = CATEGORIES[q.category] || CATEGORIES.pattern;
     $('categoryBadge').textContent = catMeta.label;
     $('categoryBadge').style.color = catMeta.color;
-
-    // Question meta
     $('qNumber').textContent = `Question ${idx + 1}`;
 
     // Difficulty pips
@@ -125,31 +125,151 @@ function renderQuestion() {
         dots.appendChild(pip);
     }
 
-    // Question text
-    $('questionText').textContent = q.question;
-
-    // Options – shuffled
-    const letters = ['A', 'B', 'C', 'D'];
-    const shuffledOpts = shuffle([...q.options]);
-    const grid = $('optionsGrid');
-    grid.innerHTML = '';
-
-    shuffledOpts.forEach((opt, i) => {
-        const btn = document.createElement('button');
-        btn.className = 'option-btn' + (state.answers[q.id] === opt ? ' selected' : '');
-        btn.innerHTML = `<span class="option-letter">${letters[i]}</span><span>${escHtml(opt)}</span>`;
-        btn.addEventListener('click', () => selectOption(q.id, opt));
-        grid.appendChild(btn);
-    });
+    // Dispatch to type renderer
+    const type = q.type || 'standard';
+    if (type === 'matrix') { renderMatrixQuestion(q); }
+    else if (type === 'memory') { renderMemoryQuestion(q); }
+    else if (type === 'speed') { renderSpeedQuestion(q); }
+    else { renderStandardQuestion(q); }
 
     // Nav
     $('prevBtn').disabled = idx === 0;
     const isLast = idx === total - 1;
     $('nextBtn').textContent = isLast ? 'Submit ✓' : 'Next →';
-    if (isLast) $('nextBtn').classList.add('primary');
-    else $('nextBtn').classList.add('primary'); // always primary
-
     updateQuestionMap();
+}
+
+// ── Standard MCQ ──
+function renderStandardQuestion(q) {
+    $('matrixContainer').style.display = 'none';
+    $('memoryContainer').style.display = 'none';
+    $('speedContainer').style.display = 'none';
+    $('questionText').style.display = 'block';
+    $('optionsGrid').style.display = 'grid';
+
+    $('questionText').textContent = q.question;
+    renderOptions(q);
+}
+
+// ── Visual Matrix ──
+function renderMatrixQuestion(q) {
+    $('memoryContainer').style.display = 'none';
+    $('speedContainer').style.display = 'none';
+    $('questionText').style.display = 'block';
+    $('optionsGrid').style.display = 'grid';
+    $('matrixContainer').style.display = 'block';
+
+    $('questionText').textContent = q.question;
+
+    // Build matrix table
+    const mc = $('matrixContainer');
+    let html = '<table class="matrix-grid">';
+    q.grid.forEach(row => {
+        html += '<tr>';
+        row.forEach(cell => {
+            const isMissing = cell === '?';
+            html += `<td class="matrix-cell${isMissing ? ' missing' : ''}">${escHtml(cell)}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</table>';
+    mc.innerHTML = html;
+
+    renderOptions(q, true);
+}
+
+// ── Working Memory (timed sequence reveal) ──
+function renderMemoryQuestion(q) {
+    $('matrixContainer').style.display = 'none';
+    $('speedContainer').style.display = 'none';
+    $('memoryContainer').style.display = 'block';
+    $('questionText').style.display = 'none';
+    $('optionsGrid').style.display = 'none';
+
+    // If already answered, just show question
+    if (state.answers[q.id]) {
+        showMemoryQuestion(q);
+        return;
+    }
+
+    // Show sequence with countdown
+    const dur = q.sequenceDuration || 5;
+    let timeLeft = dur;
+
+    $('memoryContainer').innerHTML = `
+    <div class="mem-sequence-wrap">
+      <div class="mem-label">Memorize this sequence:</div>
+      <div class="mem-sequence">${q.sequence.join(' — ')}</div>
+      <div class="mem-countdown-bar">
+        <div class="mem-countdown-fill" id="memFill" style="width:100%"></div>
+      </div>
+      <div class="mem-timer-text">Hiding in <span id="memSecs">${timeLeft}</span>s…</div>
+    </div>
+  `;
+
+    state.memTimerRef = setInterval(() => {
+        timeLeft--;
+        const fillEl = $('memFill');
+        const secsEl = $('memSecs');
+        if (fillEl) fillEl.style.width = (timeLeft / dur * 100) + '%';
+        if (secsEl) secsEl.textContent = timeLeft;
+        if (timeLeft <= 0) {
+            clearInterval(state.memTimerRef);
+            showMemoryQuestion(q);
+        }
+    }, 1000);
+}
+
+function showMemoryQuestion(q) {
+    $('memoryContainer').innerHTML = `
+    <div class="mem-hidden-notice">🔒 Sequence hidden — answer from memory</div>
+  `;
+    $('questionText').style.display = 'block';
+    $('optionsGrid').style.display = 'grid';
+    $('questionText').textContent = q.question;
+    renderOptions(q);
+}
+
+// ── Processing Speed (symbol grid) ──
+function renderSpeedQuestion(q) {
+    $('matrixContainer').style.display = 'none';
+    $('memoryContainer').style.display = 'none';
+    $('questionText').style.display = 'block';
+    $('optionsGrid').style.display = 'grid';
+    $('speedContainer').style.display = 'block';
+
+    // Build symbol grid
+    const sc = $('speedContainer');
+    const gridHtml = q.grid.map(row =>
+        `<div class="speed-row">${row.split(' ').map(sym =>
+            `<span class="speed-sym${sym === q.target ? ' speed-target-sym' : ''}">${escHtml(sym)}</span>`
+        ).join('')}</div>`
+    ).join('');
+
+    sc.innerHTML = `
+    <div class="speed-label">Find all <strong class="speed-find">${escHtml(q.target)}</strong> symbols:</div>
+    <div class="speed-grid">${gridHtml}</div>
+  `;
+
+    $('questionText').textContent = q.question;
+    renderOptions(q);
+}
+
+// ── Options renderer ──
+function renderOptions(q, symbolMode = false) {
+    const letters = ['A', 'B', 'C', 'D'];
+    const shuffledOpts = q.type === 'memory' ? [...q.options] : shuffle([...q.options]);
+    const grid = $('optionsGrid');
+    grid.innerHTML = '';
+
+    shuffledOpts.forEach((opt, i) => {
+        const btn = document.createElement('button');
+        const sel = state.answers[q.id] === opt;
+        btn.className = 'option-btn' + (sel ? ' selected' : '');
+        btn.innerHTML = `<span class="option-letter">${letters[i]}</span><span>${escHtml(opt)}</span>`;
+        btn.addEventListener('click', () => selectOption(q.id, opt));
+        grid.appendChild(btn);
+    });
 }
 
 // ══════════════════════════════════════════════
@@ -173,6 +293,7 @@ function selectOption(qId, opt) {
 // NAVIGATION
 // ══════════════════════════════════════════════
 function navigate(dir) {
+    clearInterval(state.memTimerRef);
     state.current = Math.max(0, Math.min(state.questions.length - 1, state.current + dir));
     renderQuestion();
 }
@@ -200,7 +321,12 @@ function renderQuestionMap() {
         const dot = document.createElement('div');
         dot.className = 'q-dot' + (state.answers[q.id] ? ' answered' : '') + (i === state.current ? ' current' : '');
         dot.textContent = i + 1;
-        dot.addEventListener('click', () => { state.current = i; renderQuestion(); });
+        dot.title = CATEGORIES[q.category]?.label || '';
+        dot.addEventListener('click', () => {
+            clearInterval(state.memTimerRef);
+            state.current = i;
+            renderQuestion();
+        });
         map.appendChild(dot);
     });
 }
@@ -213,26 +339,38 @@ function updateQuestionMap() {
 }
 
 // ══════════════════════════════════════════════
-// SUBMIT
+// SUBMIT + G-FACTOR WEIGHTED SCORING
 // ══════════════════════════════════════════════
 function submitTest(timeout = false) {
     clearInterval(state.timerRef);
+    clearInterval(state.memTimerRef);
     state.submitted = true;
     const timeTaken = Math.round((Date.now() - state.startTime) / 1000);
 
-    let rawScore = 0;
-    let catCorrect = { pattern: 0, numerical: 0, logical: 0, spatial: 0 };
-    let catTotal = { pattern: 0, numerical: 0, logical: 0, spatial: 0 };
+    let weightedScore = 0;
+    let maxWeightedScore = 0;
+    const catCorrect = {};
+    const catTotal = {};
 
     state.questions.forEach(q => {
-        catTotal[q.category]++;
+        const cat = q.category;
+        const gw = G_WEIGHTS[cat] || 0.65;
+        const dpts = SCORING.difficultyPoints[q.difficulty] || 4;
+        const ws = gw * dpts;
+
+        if (!catCorrect[cat]) { catCorrect[cat] = 0; catTotal[cat] = 0; }
+        catTotal[cat]++;
+        maxWeightedScore += ws;
+
         if (state.answers[q.id] === q.answer) {
-            rawScore += SCORING.difficultyPoints[q.difficulty];
-            catCorrect[q.category]++;
+            weightedScore += ws;
+            catCorrect[cat]++;
         }
     });
 
-    let iq = SCORING.iqMean + ((rawScore - SCORING.populationMean) / SCORING.populationSD) * SCORING.iqSD;
+    // Normalized % → IQ
+    const normalizedPct = (weightedScore / maxWeightedScore) * 100;
+    let iq = SCORING.iqMean + ((normalizedPct - SCORING.populationMeanPct) / SCORING.populationSdPct) * SCORING.iqSD;
     iq = Math.round(Math.max(SCORING.minIQ, Math.min(SCORING.maxIQ, iq)));
 
     const percentile = iqToPercentile(iq);
@@ -241,7 +379,10 @@ function submitTest(timeout = false) {
     const grade = getGrade(iq);
 
     showScreen('results');
-    renderResults({ iq, percentile, correct, answered, timeTaken, catCorrect, catTotal, grade, timeout });
+    renderResults({
+        iq, percentile, correct, answered, timeTaken, catCorrect, catTotal, grade, timeout,
+        normalizedPct: normalizedPct.toFixed(1)
+    });
 }
 
 // ══════════════════════════════════════════════
@@ -251,15 +392,12 @@ function renderResults(data) {
     const { iq, percentile, correct, answered, timeTaken, catCorrect, catTotal, grade, timeout } = data;
     const total = state.questions.length;
 
-    // Header
     $('userNameDisplay').textContent = `${state.userName}'s Results`;
 
-    // IQ Ring
+    // IQ ring
     $('iqScoreDisplay').textContent = iq;
     const pctOfRange = (iq - 55) / (160 - 55);
-    setTimeout(() => {
-        $('iqRingFill').style.strokeDashoffset = 427 * (1 - pctOfRange);
-    }, 200);
+    setTimeout(() => { $('iqRingFill').style.strokeDashoffset = 427 * (1 - pctOfRange); }, 200);
 
     // Grade
     const gb = $('gradeBadge');
@@ -276,17 +414,16 @@ function renderResults(data) {
     $('statTime').textContent = formatTime(timeTaken);
     $('statAnswered').textContent = `${answered}/${total}`;
 
-    // Highlight IQ range cell
     highlightRangeCell(iq);
-
-    // Bell curve
     drawBellCurve(iq);
 
-    // Category bars
+    // Category bars — show all 7 domains
     const catBars = $('categoryBars');
     catBars.innerHTML = '';
     Object.entries(CATEGORIES).forEach(([key, meta]) => {
-        const pct = catTotal[key] > 0 ? Math.round((catCorrect[key] / catTotal[key]) * 100) : 0;
+        const tot = catTotal[key] || 0;
+        const cor = catCorrect[key] || 0;
+        const pct = tot > 0 ? Math.round((cor / tot) * 100) : 0;
         catBars.innerHTML += `
       <div class="cat-bar-row">
         <div class="cat-bar-label">
@@ -296,15 +433,13 @@ function renderResults(data) {
         <div class="cat-bar-bg">
           <div class="cat-bar-fill" style="width:0%;background:${meta.color}" data-pct="${pct}"></div>
         </div>
-        <div class="cat-pct">${pct}%</div>
-      </div>
-    `;
+        <div class="cat-pct">${tot > 0 ? pct + '%' : '—'}</div>
+      </div>`;
     });
     setTimeout(() => {
         document.querySelectorAll('.cat-bar-fill').forEach(b => { b.style.width = b.dataset.pct + '%'; });
     }, 300);
 
-    // Store
     localStorage.setItem('iqTestLastResult', JSON.stringify({
         name: state.userName, iq, percentile, correct, total, time: timeTaken, date: new Date().toISOString()
     }));
@@ -316,24 +451,20 @@ function highlightRangeCell(iq) {
     document.querySelectorAll('.range-cell').forEach(cell => {
         cell.classList.remove('active-range');
         const min = parseInt(cell.dataset.min);
-        if (
-            (min === 145 && iq >= 145) ||
-            (min === 130 && iq >= 130 && iq < 145) ||
-            (min === 120 && iq >= 120 && iq < 130) ||
-            (min === 110 && iq >= 110 && iq < 120) ||
-            (min === 90 && iq >= 90 && iq < 110) ||
-            (min === 0 && iq < 90)
-        ) {
+        if ((min === 145 && iq >= 145) || (min === 130 && iq >= 130 && iq < 145) ||
+            (min === 120 && iq >= 120 && iq < 130) || (min === 110 && iq >= 110 && iq < 120) ||
+            (min === 90 && iq >= 90 && iq < 110) || (min === 0 && iq < 90)) {
             cell.classList.add('active-range');
         }
     });
 }
 
 // ══════════════════════════════════════════════
-// BELL CURVE (multi-color SD zones like reference)
+// BELL CURVE (results — with user dot)
 // ══════════════════════════════════════════════
 function drawBellCurve(userIQ) {
     const canvas = $('bellCurve');
+    if (!canvas) return;
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
@@ -342,157 +473,140 @@ function drawBellCurve(userIQ) {
     ctx.scale(dpr, dpr);
     const W = rect.width, H = rect.height;
 
-    const mu = 100, sigma = 15;
-    const iqMin = 55, iqMax = 160;
-
+    const mu = 100, sigma = 15, iqMin = 55, iqMax = 160;
     const pdf = x => Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
     const iqToX = iq => ((iq - iqMin) / (iqMax - iqMin)) * W;
+    const scaleY = (H - 36) / pdf(mu);
 
-    // Scale to fit canvas
-    const peakPdf = pdf(mu);
-    const scaleY = (H - 36) / peakPdf;
-
-    // Build points array
-    const step = 0.4;
     const pts = [];
-    for (let iq = iqMin; iq <= iqMax; iq += step) {
-        pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
-    }
+    for (let iq = iqMin; iq <= iqMax; iq += 0.4) pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
 
     ctx.clearRect(0, 0, W, H);
+    _drawBellZones(ctx, pts, H, iqToX, userIQ);
+    _drawBellCurve(ctx, pts);
+    _drawBaseline(ctx, W, H);
+    _drawXLabels(ctx, iqToX, H);
+    _drawPctLabels(ctx, pdf, iqToX, scaleY, H);
+    _drawUserLine(ctx, pdf, iqToX, scaleY, H, userIQ);
+}
 
-    // ── SD ZONE FILLS (matches reference: purple/orange/green/blue/green/orange/purple) ──
+function _drawBellZones(ctx, pts, H, iqToX, userIQ) {
     const zones = [
-        { from: 55, to: 70, color: 'rgba(150,80,220,0.3)' },  // far left purple
-        { from: 70, to: 85, color: 'rgba(240,130,40,0.3)' },  // left orange
-        { from: 85, to: 100, color: 'rgba(60,180,80,0.3)' },  // left green
-        { from: 100, to: 115, color: 'rgba(50,120,240,0.45)' },  // center blue
-        { from: 115, to: 130, color: 'rgba(60,180,80,0.3)' },  // right green
-        { from: 130, to: 145, color: 'rgba(240,130,40,0.3)' },  // right orange
-        { from: 145, to: 160, color: 'rgba(150,80,220,0.3)' },  // far right purple
+        { from: 55, to: 70, color: 'rgba(150,80,220,0.28)' },
+        { from: 70, to: 85, color: 'rgba(240,130,40,0.28)' },
+        { from: 85, to: 100, color: 'rgba(60,180,80,0.28)' },
+        { from: 100, to: 115, color: 'rgba(50,120,240,0.42)' },
+        { from: 115, to: 130, color: 'rgba(60,180,80,0.28)' },
+        { from: 130, to: 145, color: 'rgba(240,130,40,0.28)' },
+        { from: 145, to: 160, color: 'rgba(150,80,220,0.28)' }
     ];
-
-    zones.forEach(zone => {
-        const zonePts = pts.filter(p => p.iq >= zone.from && p.iq <= zone.to);
-        if (!zonePts.length) return;
+    zones.forEach(z => {
+        const zp = pts.filter(p => p.iq >= z.from && p.iq <= z.to);
+        if (!zp.length) return;
         ctx.beginPath();
-        ctx.moveTo(zonePts[0].x, H - 20);
-        zonePts.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.lineTo(zonePts[zonePts.length - 1].x, H - 20);
+        ctx.moveTo(zp[0].x, H - 20);
+        zp.forEach(p => ctx.lineTo(p.x, p.y));
+        ctx.lineTo(zp[zp.length - 1].x, H - 20);
         ctx.closePath();
-        ctx.fillStyle = zone.color;
+        ctx.fillStyle = z.color;
         ctx.fill();
     });
+}
 
-    // ── CURVE LINE ──
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
+function _drawBellCurve(ctx, pts) {
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
     pts.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2; ctx.stroke();
+}
 
-    // ── BASELINE ──
-    ctx.beginPath();
-    ctx.moveTo(0, H - 20);
-    ctx.lineTo(W, H - 20);
-    ctx.strokeStyle = '#c0c4d4';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+function _drawBaseline(ctx, W, H) {
+    ctx.beginPath(); ctx.moveTo(0, H - 20); ctx.lineTo(W, H - 20);
+    ctx.strokeStyle = '#c0c4d4'; ctx.lineWidth = 1; ctx.stroke();
+}
 
-    // ── X-AXIS LABELS ──
+function _drawXLabels(ctx, iqToX, H) {
     const markers = [55, 70, 85, 100, 115, 130, 145, 160];
-    ctx.fillStyle = '#8888aa';
-    ctx.font = '10px Inter, sans-serif';
-    ctx.textAlign = 'center';
+    ctx.fillStyle = '#8888aa'; ctx.font = '10px Inter,sans-serif'; ctx.textAlign = 'center';
     markers.forEach(m => {
         const mx = iqToX(m);
-        ctx.beginPath();
-        ctx.moveTo(mx, H - 20);
-        ctx.lineTo(mx, H - 15);
-        ctx.strokeStyle = '#c0c4d4';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillText(m, mx, H - 4);
+        ctx.beginPath(); ctx.moveTo(mx, H - 20); ctx.lineTo(mx, H - 14);
+        ctx.strokeStyle = '#c0c4d4'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = '#8888aa'; ctx.fillText(m, mx, H - 4);
     });
+}
 
-    // ── SD % LABELS (like reference: 34%, 14%, 2%, 0.1%) ──
-    ctx.fillStyle = '#4a4a6a';
-    ctx.font = 'bold 10px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    const pctLabels = [
-        { iq: 77.5, label: '14%' },
-        { iq: 92.5, label: '34%' },
-        { iq: 107.5, label: '34%' },
-        { iq: 122.5, label: '14%' },
-    ];
-    pctLabels.forEach(({ iq, label }) => {
-        const px = iqToX(iq);
+function _drawPctLabels(ctx, pdf, iqToX, scaleY, H) {
+    const labels = [{ iq: 92.5, label: '34%' }, { iq: 107.5, label: '34%' }, { iq: 77.5, label: '14%' }, { iq: 122.5, label: '14%' }];
+    ctx.fillStyle = '#4a4a6a'; ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'center';
+    labels.forEach(({ iq, label }) => ctx.fillText(label, iqToX(iq), H - 20 - pdf(iq) * scaleY - 10));
+}
+
+function _drawUserLine(ctx, pdf, iqToX, scaleY, H, userIQ) {
+    const ux = iqToX(userIQ), uy = H - 20 - pdf(userIQ) * scaleY;
+    ctx.beginPath(); ctx.moveTo(ux, H - 20); ctx.lineTo(ux, uy);
+    ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2; ctx.setLineDash([4, 3]); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(ux, uy, 5.5, 0, Math.PI * 2);
+    ctx.fillStyle = '#f2d445'; ctx.fill();
+    ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2; ctx.stroke();
+    const lx = Math.max(22, Math.min(iqToX(160) - 22, ux));
+    ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 12px Space Grotesk,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(`IQ ${userIQ}`, lx, Math.max(14, uy - 10));
+}
+
+// ══════════════════════════════════════════════
+// STATIC LANDING BELL CURVE
+// ══════════════════════════════════════════════
+function drawLandingBellCurve() {
+    const canvas = document.getElementById('landingBellCurve');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0) { setTimeout(drawLandingBellCurve, 200); return; }
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+    const W = rect.width, H = rect.height;
+
+    const mu = 100, sigma = 15, iqMin = 55, iqMax = 160;
+    const pdf = x => Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
+    const iqToX = iq => ((iq - iqMin) / (iqMax - iqMin)) * W;
+    const scaleY = (H - 36) / pdf(mu);
+
+    const pts = [];
+    for (let iq = iqMin; iq <= iqMax; iq += 0.4) pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
+
+    ctx.clearRect(0, 0, W, H);
+    _drawBellZones(ctx, pts, H, iqToX, null);
+    _drawBellCurve(ctx, pts);
+    _drawBaseline(ctx, W, H);
+    _drawXLabels(ctx, iqToX, H);
+
+    // Pct labels including outer zones for landing
+    const allLabels = [{ iq: 62.5, l: '0.1%' }, { iq: 77.5, l: '2%' }, { iq: 92.5, l: '14%' },
+    { iq: 107.5, l: '34%' }, { iq: 122.5, l: '14%' }, { iq: 137.5, l: '2%' }, { iq: 152.5, l: '0.1%' }];
+    ctx.fillStyle = '#4a4a6a'; ctx.font = 'bold 10px Inter,sans-serif'; ctx.textAlign = 'center';
+    allLabels.forEach(({ iq, l }) => {
         const py = H - 20 - pdf(iq) * scaleY - 10;
-        ctx.fillText(label, px, py);
+        if (py > 14) ctx.fillText(l, iqToX(iq), py);
     });
-
-    // ── USER IQ VERTICAL LINE ──
-    const ux = iqToX(userIQ);
-    const uy = H - 20 - pdf(userIQ) * scaleY;
-    ctx.beginPath();
-    ctx.moveTo(ux, H - 20);
-    ctx.lineTo(ux, uy);
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([4, 3]);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // ── USER DOT ──
-    ctx.beginPath();
-    ctx.arc(ux, uy, 5.5, 0, Math.PI * 2);
-    ctx.fillStyle = '#f2d445';
-    ctx.fill();
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // ── USER IQ LABEL ──
-    const labelX = Math.max(22, Math.min(W - 22, ux));
-    const labelY = Math.max(14, uy - 12);
-    ctx.fillStyle = '#1a1a2e';
-    ctx.font = 'bold 12px Space Grotesk, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`IQ ${userIQ}`, labelX, labelY);
 }
 
 // ══════════════════════════════════════════════
 // UTILITIES
 // ══════════════════════════════════════════════
 function shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [arr[i], arr[j]] = [arr[j], arr[i]];
-    }
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1));[arr[i], arr[j]] = [arr[j], arr[i]]; }
     return arr;
 }
-
-function formatTime(secs) {
-    const m = Math.floor(secs / 60), s = secs % 60;
-    return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-function escHtml(str) {
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
-
+function formatTime(secs) { const m = Math.floor(secs / 60), s = secs % 60; return m > 0 ? `${m}m ${s}s` : `${s}s`; }
+function escHtml(str) { return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function normalCDF(z) {
-    const t = 1 / (1 + 0.2316419 * Math.abs(z));
-    const d = 0.3989423 * Math.exp(-z * z / 2);
+    const t = 1 / (1 + 0.2316419 * Math.abs(z)), d = 0.3989423 * Math.exp(-z * z / 2);
     let p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.7814779 + t * (-1.8212560 + t * 1.3302744))));
-    if (z > 0) p = 1 - p;
-    return p;
+    if (z > 0) p = 1 - p; return p;
 }
-
-function iqToPercentile(iq) {
-    return Math.round(normalCDF((iq - 100) / 15) * 100);
-}
+function iqToPercentile(iq) { return Math.round(normalCDF((iq - 100) / 15) * 100); }
 
 function getGrade(iq) {
     if (iq >= 145) return { label: "Genius", color: "#7c3aed", bg: "rgba(124,58,237,0.1)", fg: "#7c3aed", desc: "Extraordinary cognitive ability. Top 0.1% of population." };
@@ -506,8 +620,7 @@ function getGrade(iq) {
 
 function showToast(msg) {
     const toast = document.createElement('div');
-    toast.className = 'toast';
-    toast.textContent = msg;
+    toast.className = 'toast'; toast.textContent = msg;
     document.body.appendChild(toast);
     setTimeout(() => toast.classList.add('show'), 10);
     setTimeout(() => { toast.classList.remove('show'); setTimeout(() => toast.remove(), 500); }, 2500);
@@ -522,117 +635,8 @@ function copyResults() {
 
 function retake() {
     clearInterval(state.timerRef);
+    clearInterval(state.memTimerRef);
     state.submitted = false;
     showScreen('landing');
-}
-
-// ══════════════════════════════════════════════
-// STATIC LANDING BELL CURVE (no user dot)
-// ══════════════════════════════════════════════
-function drawLandingBellCurve() {
-    const canvas = document.getElementById('landingBellCurve');
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-    const W = rect.width, H = rect.height;
-
-    const mu = 100, sigma = 15;
-    const iqMin = 55, iqMax = 160;
-    const pdf = x => Math.exp(-0.5 * ((x - mu) / sigma) ** 2) / (sigma * Math.sqrt(2 * Math.PI));
-    const iqToX = iq => ((iq - iqMin) / (iqMax - iqMin)) * W;
-    const scaleY = (H - 36) / pdf(mu);
-
-    const step = 0.4;
-    const pts = [];
-    for (let iq = iqMin; iq <= iqMax; iq += step) {
-        pts.push({ x: iqToX(iq), y: H - 20 - pdf(iq) * scaleY, iq });
-    }
-
-    ctx.clearRect(0, 0, W, H);
-
-    // SD zone fills — same colors as results bell curve
-    const zones = [
-        { from: 55, to: 70, color: 'rgba(150,80,220,0.28)' },
-        { from: 70, to: 85, color: 'rgba(240,130,40,0.28)' },
-        { from: 85, to: 100, color: 'rgba(60,180,80,0.28)' },
-        { from: 100, to: 115, color: 'rgba(50,120,240,0.42)' },
-        { from: 115, to: 130, color: 'rgba(60,180,80,0.28)' },
-        { from: 130, to: 145, color: 'rgba(240,130,40,0.28)' },
-        { from: 145, to: 160, color: 'rgba(150,80,220,0.28)' },
-    ];
-
-    zones.forEach(zone => {
-        const zp = pts.filter(p => p.iq >= zone.from && p.iq <= zone.to);
-        if (!zp.length) return;
-        ctx.beginPath();
-        ctx.moveTo(zp[0].x, H - 20);
-        zp.forEach(p => ctx.lineTo(p.x, p.y));
-        ctx.lineTo(zp[zp.length - 1].x, H - 20);
-        ctx.closePath();
-        ctx.fillStyle = zone.color;
-        ctx.fill();
-    });
-
-    // Curve line
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    pts.forEach(p => ctx.lineTo(p.x, p.y));
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-
-    // Baseline
-    ctx.beginPath();
-    ctx.moveTo(0, H - 20);
-    ctx.lineTo(W, H - 20);
-    ctx.strokeStyle = '#c0c4d4';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // X-axis labels
-    const markers = [55, 70, 85, 100, 115, 130, 145, 160];
-    ctx.fillStyle = '#8888aa';
-    ctx.font = '10px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    markers.forEach(m => {
-        const mx = iqToX(m);
-        ctx.beginPath();
-        ctx.moveTo(mx, H - 20);
-        ctx.lineTo(mx, H - 14);
-        ctx.strokeStyle = '#c0c4d4';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        ctx.fillStyle = '#8888aa';
-        ctx.fillText(m, mx, H - 4);
-    });
-
-    // Percentage labels (0.1%, 2%, 14%, 34%, 34%, 14%, 2%, 0.1%)
-    const pctLabels = [
-        { iq: 62.5, label: '0.1%' },
-        { iq: 77.5, label: '2%' },
-        { iq: 92.5, label: '14%' },
-        { iq: 107.5, label: '34%' },
-        { iq: 122.5, label: '14%' },
-        { iq: 137.5, label: '2%' },
-        { iq: 152.5, label: '0.1%' },
-    ];
-    ctx.fillStyle = '#4a4a6a';
-    ctx.font = 'bold 10px Inter, sans-serif';
-    ctx.textAlign = 'center';
-    pctLabels.forEach(({ iq, label }) => {
-        const px = iqToX(iq);
-        const py = H - 20 - pdf(iq) * scaleY - 10;
-        if (py > 14) ctx.fillText(label, px, py);
-    });
-}
-
-// Draw landing bell curve once fonts/layout are ready
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(drawLandingBellCurve, 100));
-} else {
-    setTimeout(drawLandingBellCurve, 100);
+    setTimeout(drawLandingBellCurve, 150);
 }
