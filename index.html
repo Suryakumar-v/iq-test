@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>IQ Test – Cognitive Assessment</title>
+  <meta name="description" content="A scientifically-structured IQ test with 40 questions across pattern recognition, numerical, logical, and spatial reasoning. See your IQ score and where you stand on the bell curve." />
+  <meta property="og:title" content="IQ Test – Cognitive Assessment" />
+  <meta property="og:description" content="Take the free IQ test and discover where you stand. 40 questions, 25 minutes, instant results with bell curve." />
+  <meta name="theme-color" content="#0a0a0f" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ══════════════════════════════════
+     SCREEN 1 – LANDING
+══════════════════════════════════ -->
+<section id="landing" class="screen active">
+  <div class="container">
+    <div class="card">
+      <div class="logo-badge">
+        <span class="dot"></span>
+        Cognitive Assessment
+      </div>
+
+      <h1 class="hero-title">Mental IQ Test</h1>
+      <p class="hero-sub">
+        40 professionally crafted questions across 4 cognitive domains.
+        Discover your estimated IQ and see where you stand on the bell curve.
+      </p>
+
+      <div class="stats-row">
+        <div class="stat-item">
+          <span class="stat-value">40</span>
+          <span class="stat-label">Questions</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">25</span>
+          <span class="stat-label">Minutes</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value">4</span>
+          <span class="stat-label">Domains</span>
+        </div>
+      </div>
+
+      <div class="name-input-wrap">
+        <label for="nameInput">Your name (optional)</label>
+        <input
+          type="text"
+          id="nameInput"
+          placeholder="Enter your first name…"
+          maxlength="40"
+          autocomplete="given-name"
+        />
+      </div>
+
+      <button class="btn-start" id="startBtn">
+        Start Test
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M5 12h14M12 5l7 7-7 7"/>
+        </svg>
+      </button>
+
+      <div class="landing-info">
+        <div class="info-item">
+          <span class="icon">🧩</span>
+          <strong>Pattern Recognition</strong>
+          Number sequences, visual series &amp; matrix problems
+        </div>
+        <div class="info-item">
+          <span class="icon">🔢</span>
+          <strong>Numerical Reasoning</strong>
+          Arithmetic, ratios, word problems
+        </div>
+        <div class="info-item">
+          <span class="icon">⚡</span>
+          <strong>Logical &amp; Spatial</strong>
+          Deductive logic, 3D visualization
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════════════════════════
+     SCREEN 2 – TEST
+══════════════════════════════════ -->
+<section id="test" class="screen">
+  <div class="container">
+
+    <!-- Header Bar -->
+    <div class="test-header">
+      <div class="timer-wrap">
+        <span class="timer-icon">⏱</span>
+        <span id="timer">25:00</span>
+      </div>
+
+      <div class="progress-wrap">
+        <div class="progress-info">
+          <span id="progressText">Question 1 of 40</span>
+          <span id="categoryBadge" class="category-badge">Pattern</span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progressFill" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Question Card -->
+    <div class="question-card">
+      <div class="question-meta">
+        <span class="q-number" id="qNumber">#1</span>
+        <div class="difficulty-dots" id="difficultyDots">
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+          <span class="dot"></span>
+        </div>
+      </div>
+      <p class="question-text" id="questionText">Loading question…</p>
+      <div class="options-grid" id="optionsGrid"></div>
+    </div>
+
+    <!-- Question Map -->
+    <div class="question-map" id="questionMap" style="margin-bottom:20px"></div>
+
+    <!-- Navigation -->
+    <div class="test-nav">
+      <button class="btn-nav" id="prevBtn" disabled>← Prev</button>
+      <button class="btn-nav primary" id="nextBtn">Next →</button>
+    </div>
+
+  </div>
+</section>
+
+<!-- ══════════════════════════════════
+     SCREEN 3 – RESULTS
+══════════════════════════════════ -->
+<section id="results" class="screen">
+  <div class="container">
+
+    <!-- Results Header -->
+    <div class="results-header">
+      <h2>Your Cognitive Report</h2>
+      <div class="user-name-display" id="userNameDisplay">Results</div>
+    </div>
+
+    <!-- IQ Hero -->
+    <div class="card" style="margin-bottom:20px">
+      <div class="iq-hero">
+        <!-- Ring -->
+        <div class="iq-ring">
+          <svg viewBox="0 0 150 150" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <linearGradient id="iqGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%"   stop-color="#4338ca"/>
+                <stop offset="50%"  stop-color="#6366f1"/>
+                <stop offset="100%" stop-color="#818cf8"/>
+              </linearGradient>
+            </defs>
+            <circle class="iq-ring-track" cx="75" cy="75" r="68"/>
+            <circle class="iq-ring-fill"  cx="75" cy="75" r="68" id="iqRingFill"
+                    style="stroke-dasharray:427;stroke-dashoffset:427"/>
+          </svg>
+          <div class="iq-center-text">
+            <span class="iq-score-big" id="iqScoreDisplay">—</span>
+            <span class="iq-label-small">IQ Score</span>
+          </div>
+        </div>
+
+        <!-- Grade -->
+        <div class="iq-grade-info">
+          <span class="grade-badge" id="gradeBadge">—</span>
+          <div class="iq-grade-label" id="gradeLabel">—</div>
+          <div class="iq-grade-desc"  id="gradeDesc">—</div>
+        </div>
+      </div>
+
+      <!-- Stats row -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="value" id="statPercentile">—</div>
+          <div class="label">Percentile</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="statScore">—</div>
+          <div class="label">Correct</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="statAnswered">—</div>
+          <div class="label">Answered</div>
+        </div>
+        <div class="stat-card">
+          <div class="value" id="statTime">—</div>
+          <div class="label">Time Taken</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bell Curve -->
+    <div class="bell-section">
+      <div class="section-title">📊 Population Distribution</div>
+      <canvas id="bellCurve"></canvas>
+      <p style="font-size:0.75rem;color:var(--text-muted);margin-top:10px;text-align:center">
+        The shaded area represents people scoring below you.
+        The dot marks your exact position on the normal distribution.
+      </p>
+    </div>
+
+    <!-- Category Breakdown -->
+    <div class="breakdown-section">
+      <div class="section-title">🎯 Category Breakdown</div>
+      <div class="category-bars" id="categoryBars"></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="actions-row">
+      <button class="btn-action accent-btn" id="copyBtn">
+        📋 Copy &amp; Share Results
+      </button>
+      <button class="btn-action" id="retakeBtn">
+        🔁 Retake Test
+      </button>
+    </div>
+
+    <p class="disclaimer">
+      ⚠️ This is an unofficial cognitive assessment for entertainment and self-reflection purposes.
+      Results are estimates based on a standardized formula and are <em>not</em> equivalent to a
+      professional psychometric IQ evaluation (e.g., WAIS, Stanford-Binet).
+      Cultural background and question familiarity may affect scores.
+    </p>
+
+  </div>
+</section>
+
+<script src="questions.js"></script>
+<script src="script.js"></script>
+</body>
+</html>
